@@ -21,7 +21,7 @@ This notebook demonstrates a model that has not been fully validated with OpenVI
 
 ## Notebook Contents
 
-1. Install the latest stable Gradio, PyTorch, and utility packages together with OpenVINO, OpenVINO Tokenizers, and OpenVINO GenAI nightly builds
+1. Use the preinstalled Gradio, OpenVINO, OpenVINO Tokenizers, and OpenVINO GenAI packages (no runtime installation)
 2. Select the model root and the FP16 or INT4 precision
 3. Run text-to-image generation
 4. Run image-conditioned editing
@@ -42,6 +42,10 @@ One directory is expected per weight precision, named `Qwen-Image-2.1-IR-<precis
 The default model root is `C:\openvino` and can be overridden with the `QWEN_IMAGE_21_OV_DIR` environment variable or the notebook widget.
 
 ## Installation Instructions
+
+The notebook is offline and installs nothing at runtime. The environment has to provide the dependencies beforehand: an OpenVINO GenAI build that implements `QwenImage21Pipeline` (the OpenVINO nightly wheel index is required while Qwen-Image 2.1 is experimental), matching OpenVINO and OpenVINO Tokenizers packages, and Gradio, NumPy, Pillow, and ipywidgets for the demo.
+
+The shared helper modules are imported from the repository's `utils/` directory, so the notebook works without fetching them when it stays inside a repository checkout. If the notebook is opened outside the checkout, place `notebook_utils.py` next to it.
 
 This is a self-contained example that relies solely on its own code.
 

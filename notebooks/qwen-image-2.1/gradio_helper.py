@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import gc
+import os
 import random
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+# Offline-friendly default: opt out of Gradio analytics before Gradio is imported.
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 import gradio as gr
 import numpy as np
