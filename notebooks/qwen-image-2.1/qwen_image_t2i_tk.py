@@ -51,8 +51,27 @@ PREVIEW_MAX = 768
 
 
 def available_devices() -> list[str]:
-    """OpenVINO devices with AUTO prepended."""
-    return list(dict.fromkeys(["AUTO", *ov.Core().available_devices]))
+    """Devices reported by the OpenVINO runtime."""
+    return list(ov.Core().available_devices)
+
+
+def resolve_device(requested: str, available: list[str]) -> str:
+    """Resolve a requested device to a concrete available device, falling back to CPU.
+
+    openvino_genai exposes no API to read back the real execution device, so we resolve
+    it ourselves and pass an explicit device to the pipeline. The returned value is the
+    device the pipeline actually runs on (and what the UI reports).
+    """
+    if requested == "AUTO":
+        # AUTO default priority is dGPU -> iGPU -> CPU (NPU is excluded by default).
+        gpus = [device for device in available if device.startswith("GPU")]
+        return gpus[0] if gpus else "CPU"
+    if requested in available:
+        return requested
+    for device in available:
+        if device.startswith(requested + "."):
+            return device
+    return "CPU"
 
 
 def output_to_image(output: Any) -> Image.Image:
@@ -72,9 +91,11 @@ class QwenImageApp:
         default_model: str,
         devices: list[str],
         default_device: str,
+        available: list[str],
     ) -> None:
         self.root = root
         self.model_dirs = model_dirs
+        self.available = available
         self.pipe: Any = None
         self.pipe_key: tuple[str, str] | None = None
         self.busy = False
@@ -106,6 +127,8 @@ class QwenImageApp:
             model_row, textvariable=self.device, values=devices, width=12, state="readonly"
         )
         self.device_combo.grid(row=0, column=3)
+        self.actual_device = tk.StringVar(value="actual: -")
+        ttk.Label(model_row, textvariable=self.actual_device).grid(row=0, column=4, padx=8)
         self.model_combo.bind("<<ComboboxSelected>>", self._on_model_change)
         self.device_combo.bind("<<ComboboxSelected>>", self._on_model_change)
 
@@ -141,6 +164,7 @@ class QwenImageApp:
 
     def _on_model_change(self, _event: Any = None) -> None:
         if not self.busy:
+            self.actual_device.set("actual: -")
             self.status.set(f"Model/device changed. Next Generate reloads {self.model.get()}.")
 
     def on_generate(self) -> None:
@@ -192,25 +216,36 @@ class QwenImageApp:
 
     def _worker(self, config: dict[str, Any]) -> None:
         try:
-            self._ensure_pipeline(config["model_dir"], config["device"])
-            self.events.put(("status", "Generating..."))
+            effective = self._ensure_pipeline(config["model_dir"], config["device"])
+            self.events.put(("device", effective))
+            self.events.put(("status", f"Generating on {effective}..."))
             image = self._generate(config)
-            self.events.put(("image", (image, int(config["seed"]), config)))
+            self.events.put(("image", (image, int(config["seed"]), config, effective)))
         except Exception as exc:  # surface model/runtime errors in the status bar
             self.events.put(("error", f"{type(exc).__name__}: {exc}"))
 
-    def _ensure_pipeline(self, model_dir: str, device: str) -> None:
-        key = (model_dir, device)
+    def _ensure_pipeline(self, model_dir: str, requested_device: str) -> str:
+        """Load or reuse a pipeline and return the device it actually runs on."""
+        effective = resolve_device(requested_device, self.available)
+        key = (model_dir, effective)
         if self.pipe is not None and self.pipe_key == key:
-            return
+            return effective
+
         self.pipe = None
         self.pipe_key = None
         gc.collect()
-        self.events.put(
-            ("status", f"Loading {os.path.basename(model_dir)} on {device}...")
-        )
-        self.pipe = ov_genai.Text2ImagePipeline(model_dir, device)
-        self.pipe_key = key
+        self.events.put(("status", f"Loading {os.path.basename(model_dir)} on {effective}..."))
+        try:
+            pipe = ov_genai.Text2ImagePipeline(model_dir, effective)
+        except Exception:
+            if effective == "CPU":
+                raise
+            effective = "CPU"
+            self.events.put(("status", "Requested device failed; falling back to CPU..."))
+            pipe = ov_genai.Text2ImagePipeline(model_dir, "CPU")
+        self.pipe = pipe
+        self.pipe_key = (model_dir, effective)
+        return effective
 
     def _generate(self, config: dict[str, Any]) -> Image.Image:
         output = self.pipe.generate(
@@ -229,12 +264,16 @@ class QwenImageApp:
                 kind, payload = self.events.get_nowait()
                 if kind == "status":
                     self.status.set(str(payload))
+                elif kind == "device":
+                    self.actual_device.set(f"actual: {payload}")
                 elif kind == "image":
-                    image, seed, config = payload
+                    image, seed, config, effective = payload
                     self._show(image)
                     self.seed.set(str(seed))  # keep the seed that was actually used
+                    self.actual_device.set(f"actual: {effective}")
                     self.status.set(
-                        f"Done. model={config['model_key']} device={config['device']} "
+                        f"Done. model={config['model_key']} "
+                        f"requested={config['device']} actual={effective} "
                         f"seed={seed} steps={config['steps']} "
                         f"{config['width']}x{config['height']}"
                     )
@@ -284,13 +323,14 @@ def main() -> None:
         model_dirs["Custom"] = args.model
         default_model = "Custom"
 
-    devices = available_devices()
+    available = available_devices()
+    devices = list(dict.fromkeys(["AUTO", *available]))
     default_device = args.device or "AUTO"
     if default_device not in devices:
         devices.append(default_device)
 
     root = tk.Tk()
-    QwenImageApp(root, model_dirs, default_model, devices, default_device)
+    QwenImageApp(root, model_dirs, default_model, devices, default_device, available)
     root.mainloop()
 
 
