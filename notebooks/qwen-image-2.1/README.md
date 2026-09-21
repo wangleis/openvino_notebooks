@@ -6,7 +6,7 @@ For model architecture and usage details, see the [`Qwen/Qwen-Image-2.1`](https:
 
 This tutorial demonstrates how to:
 
-- download and convert [`Qwen/Qwen-Image-2.1`](https://huggingface.co/Qwen/Qwen-Image-2.1) to OpenVINO IR;
+- load a pre-exported OpenVINO IR of [`Qwen/Qwen-Image-2.1`](https://huggingface.co/Qwen/Qwen-Image-2.1) from a local directory;
 - run text-to-image generation with OpenVINO GenAI;
 - run image-conditioned editing with the same exported model;
 - save generated images with reproducible configuration details in their filenames;
@@ -21,13 +21,25 @@ This notebook demonstrates a model that has not been fully validated with OpenVI
 
 ## Notebook Contents
 
-1. Install the latest stable Gradio, PyTorch, NNCF, and utility packages; upstream Diffusers and Optimum Intel branches; and OpenVINO nightly builds, with a temporary cross-platform fallback that automatically extracts cached or manually downloaded OpenVINO GenAI main-branch artifact ZIPs
-2. Select export options
-3. Convert the model to OpenVINO IR
-4. Run text-to-image generation
-5. Run image-conditioned editing
-6. Benchmark both scenarios
-7. Launch an interactive demo with dynamic pipeline, FP16/INT8/INT4, and device selection
+1. Install the latest stable Gradio, PyTorch, and utility packages together with OpenVINO, OpenVINO Tokenizers, and OpenVINO GenAI nightly builds
+2. Select the model root and the FP16 or INT4 precision
+3. Run text-to-image generation
+4. Run image-conditioned editing
+5. Benchmark both scenarios
+6. Launch an interactive demo with dynamic pipeline, precision, and device selection
+
+## Model Directory
+
+The notebook expects OpenVINO IR directories exported beforehand by an Optimum Intel / OpenVINO GenAI build that supports Qwen-Image 2.1. Each directory must contain `model_index.json` (with `"_class_name": "QwenImage21Pipeline"`) and the `processor`, `scheduler`, `text_encoder`, `text_encoder_i2i`, `transformer`, `vae_encoder`, `vae_decoder`, and `vision_encoder` subdirectories.
+
+One directory is expected per weight precision, named `Qwen-Image-2.1-IR-<precision>`:
+
+| Precision | Directory |
+| --- | --- |
+| FP16 | `<Model root>/Qwen-Image-2.1-IR-FP16` |
+| INT4 | `<Model root>/Qwen-Image-2.1-IR-INT4` |
+
+The default model root is `C:\openvino` and can be overridden with the `QWEN_IMAGE_21_OV_DIR` environment variable or the notebook widget.
 
 ## Installation Instructions
 

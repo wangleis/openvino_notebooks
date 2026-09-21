@@ -18,7 +18,8 @@ PIPELINE_CLASSES = {
     "Text-to-Image": ov_genai.Text2ImagePipeline,
     "Image Editing": ov_genai.Image2ImagePipeline,
 }
-PRECISIONS = ("FP16", "INT8", "INT4")
+PRECISIONS = ("FP16", "INT4")
+MODEL_DIR_PREFIX = "Qwen-Image-2.1-IR-"
 EDITING_SAMPLE_PROMPT = "Put a tiny red top hat and a blue bow tie on the cat. " "Preserve the cat's identity, face, pose, and the original composition."
 
 
@@ -46,6 +47,14 @@ class PipelineManager:
         self.pipeline_key: tuple[str, str, str] | None = None
         self.lock = threading.Lock()
 
+    def model_dir(self, precision: str) -> Path:
+        """Return the OpenVINO IR directory for a precision.
+
+        :param precision: One of :data:`PRECISIONS`.
+        :return: Directory holding the IR of that precision.
+        """
+        return self.model_root / f"{MODEL_DIR_PREFIX}{precision}"
+
     def _release(self) -> None:
         self.pipeline = None
         self.pipeline_key = None
@@ -64,7 +73,7 @@ class PipelineManager:
         """Load or reuse a pipeline for the selected configuration.
 
         :param pipeline_type: Text-to-image or image-editing pipeline name.
-        :param precision: Exported model precision.
+        :param precision: Weight precision of the OpenVINO IR.
         :param device: OpenVINO inference device.
         :return: Pipeline instance and whether it was newly loaded.
         """
@@ -73,9 +82,9 @@ class PipelineManager:
             return self.pipeline, False
 
         self._release()
-        model_dir = self.model_root / precision
+        model_dir = self.model_dir(precision)
         if not model_dir.is_dir():
-            raise gr.Error(f"{precision} model was not found in {model_dir}. Export it before running the demo.")
+            raise gr.Error(f"{precision} model was not found in {model_dir}. Expected a directory named {MODEL_DIR_PREFIX}{precision}.")
 
         pipeline_class = PIPELINE_CLASSES[pipeline_type]
         self.pipeline = pipeline_class(str(model_dir), device)
@@ -97,7 +106,7 @@ class PipelineManager:
         """Generate and save an image.
 
         :param pipeline_type: Text-to-image or image-editing pipeline name.
-        :param precision: Exported model precision.
+        :param precision: Weight precision of the OpenVINO IR.
         :param device: OpenVINO inference device.
         :param prompt: Generation or editing instruction.
         :param condition_image: Optional image used by image editing.
@@ -149,8 +158,8 @@ def make_demo(
 ) -> gr.Blocks:
     """Create the interactive Qwen-Image 2.1 demo.
 
-    :param model_root: Directory containing exported precision subdirectories.
-    :param default_precision: Initially selected model precision.
+    :param model_root: Directory containing the per-precision OpenVINO IR directories.
+    :param default_precision: Initially selected weight precision.
     :param default_device: Initially selected OpenVINO inference device.
     :param output_dir: Directory used to save generated images.
     :param editing_sample: Optional image used by the editing example.
@@ -164,7 +173,8 @@ def make_demo(
     with gr.Blocks() as demo:
         gr.Markdown("# Qwen-Image 2.1 with OpenVINO")
         gr.Markdown(
-            "Select a pipeline, exported precision, and inference device. Only one pipeline is kept in memory. "
+            f"Model root: `{Path(model_root)}`. Select a pipeline, weight precision, and inference device. "
+            "Only one pipeline is kept in memory. "
             "Image editing is multimodal conditioning and does not use a strength parameter."
         )
 
